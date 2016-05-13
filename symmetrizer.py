@@ -5,33 +5,56 @@ from collections import defaultdict
 from math import exp, pow, log
 import copy
 
+MAX_PHRASE_LEN = 7
+
 class Symmetrizer(object):
 
     # TODO: must parse files and put in e2f , f2e format
     # these can be an array of sets of alignments
     # change alignments to be 0 indexed and fit string indicies
     # fcorpus and ecorpus just list of sentences of toks
-    def __init__(self, e2f, f2e, f_corpus, e_corpus):
+    def __init__(self, e2f, f2e, e_corpus, f_corpus):
         self._e2f = e2f
         self._f2e = f2e
-        self._fcorp = f_corpus
         self._ecorp = e_corpus
-        # phrase_translations[englist_phrase][foreign_phrase] = log_prob
-        self.phrase_translations = defaultdict((lambda : defaultdict(lambda : float('-inf'))))
+        self._fcorp = f_corpus
+        # translations[foreign_phrase][englist_phrase] = log_prob
+        self.translations = defaultdict((lambda : defaultdict(lambda : float('-inf'))))
         # the distortion constant
         self.alpha = float()
 
 
     ''' fills the phrase translation table using e2f and f2e alignments'''
     def symmetrize(self):
-        phrase_pairs = set()
+        phrase_pairs = defaultdict((lambda : defaultdict(lambda : int())))
         zp = zip(self._e2f, self._f2e, self._ecorp, self._fcorp)
 
         # loop through sentence alignements and sentences
         for (e2f_align, f2e_align, e_sent, f_sent) in zp:
             dim = (len(e_sent), len(f_sent))
             alignment = self._grow_diag_final(e2f_align, f2e_align, dim)
-            phrase_pairs.update(self._extract_phrase_pairs(alignment, e_sent, f_sent))
+            phrases   = self._extract_phrase_pairs(alignment, e_sent, f_sent)
+            # update phrase pair counts
+            for _, e, f in phrases:
+                phrase_pairs[e][f] += 1
+
+        print phrase_pairs
+
+        # fill the translation table
+        for e in phrase_pairs:
+            e_phrase_pairs = phrase_pairs[e]
+            e_count = len(e_phrase_pairs)
+            for f in e_phrase_pairs:
+                prob = float(e_phrase_pairs[f]) / e_count
+                print prob
+                self.translations[f][e] = log(prob)
+
+        # prune table -- limit translations options to 20 for a phrase
+        for f in self.translations:
+            trans = self.translations[f].items()
+            # get the 20 with the highest probabilty
+            trans = sorted(trans, key= lambda x: x[1], reverse=True)[:20]
+            self.translations[f] = dict(trans)
 
         # fill phrase_translations (probably using regex).
         # phi(t|s) = count(s, t) / count(s)
@@ -101,7 +124,7 @@ class Symmetrizer(object):
 
     ''' returns the set of phrase pairs in the given alignment A'''
     def _extract_phrase_pairs(self, A, e_sent, f_sent):
-        bp = set()
+        bp = list()
         e_len, f_len = len(e_sent), len(f_sent)
 
         for e_start in xrange(e_len):
@@ -112,7 +135,7 @@ class Symmetrizer(object):
                     if e_start <= e <= e_end:
                         f_start = min(f, f_start)
                         f_end   = max(f, f_end)
-                bp.update(self._extract(A, e_sent, f_sent , e_start, e_end, f_start, f_end))
+                bp.extend(self._extract(A, e_sent, f_sent , e_start, e_end, f_start, f_end))
         return bp
 
 
@@ -137,7 +160,8 @@ class Symmetrizer(object):
                 # add phrase pair ([e_start, e_end], [fs, fe]) to E
                 e_phrase = ' '.join(e_sent[i] for i in xrange(e_start, e_end+1))
                 f_phrase = ' '.join(f_sent[i] for i in xrange(fs, fe+1))
-                E.add(((e_start, e_end+1), e_phrase, f_phrase))
+                if (fe-fs) <= MAX_PHRASE_LEN and (e_end-e_start) <= MAX_PHRASE_LEN:
+                    E.add(((e_start, e_end+1), e_phrase, f_phrase))
                 fe += 1
                 if fe in f_aligned or fe == f_len:
                     break
@@ -153,13 +177,17 @@ def main():
     # e2f alignments
     # f2e alignments
 
-    trgtext = 'maria no dio una bofetada a la bruja verde'.split()
-    srctext = 'mary did not slap the green witch'.split()
+    trgtext = ['maria no dio una bofetada a la bruja verde'.split()]
+    srctext = ['mary did not slap the green witch'.split()]
 
-    e2f_align = set([(0, 0), (1, 5), (2, 1), (3, 2), (3, 3), (3, 4), (4, 6), (5, 8), (6, 7)])
-    f2e_align = set([(0, 0), (1, 1), (2, 1), (3, 4), (4, 6), (5, 8), (6, 7)])
+    e2f_align = [set([(0, 0), (1, 5), (2, 1), (3, 2), (3, 3), (3, 4), (4, 6), (5, 8), (6, 7)])]
+    f2e_align = [set([(0, 0), (1, 1), (2, 1), (3, 4), (4, 6), (5, 8), (6, 7)])]
 
-    sym = Symmetrizer(None, None, None, None)
+    sym = Symmetrizer(e2f_align, f2e_align, srctext, trgtext)
+    sym.symmetrize()
+    print sym.translations
+
+    '''
     dim = (len(srctext), len(trgtext))
     A = sym._grow_diag_final(e2f_align, f2e_align, dim)
     phrases = sym._extract_phrase_pairs(A, srctext, trgtext)
@@ -183,5 +211,6 @@ def main():
     for i, p in enumerate(sorted(dlist.items(), key = ordering), 1):
         k, v = p
         print '({0:2}) {1} {2} - {3}'.format(i, v[0], k, ' ; '.join(v[1]))
+    '''
 
 main()
