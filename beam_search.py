@@ -73,8 +73,8 @@ class BeamSearch:
 
         self.all_translations = translation_table
         
-        # populate the language model using the training_set and held out settings
-        self.transitions, self.w_unigram, self.w_bigram = self.create_bigram_lm(training_set, held_out_set)
+        # populate the language model using the training_set
+        self.transitions = self.create_bigram_lm(training_set)
         
         # set the beam search's pruning settings
         self.prune        = prune
@@ -83,21 +83,15 @@ class BeamSearch:
     # create_bigram_lm
     #
     # args:     training_set        a training set (English) with which to construct the LM
-    #           held_out_set        held out set (English)
     # 
     # returns:  returns a language model for English, trained on the training set, as well as
     #           a weight for unigrams and bigrams, assessed through deleted interpolation
 
-    def create_bigram_lm (self, training_set, held_out_set):
+    def create_bigram_lm (self, training_set):
 
         model = BigramLM()
         model.EstimateBigrams(training_set) 
-
-        held_out_model = BigramLM()
-        held_out_model.EstimateBigrams(held_out_set)
-        w_unigram, w_bigram = held_out_model.ApplyDeletedInterp(held_out_set)
-
-        return model, w_unigram, w_bigram
+        return model
 
     # transition_prob
     #
@@ -108,9 +102,6 @@ class BeamSearch:
     #           linear interpolation for smoothing
 
     def transition_prob (self, prev_word, word):
-
-        # return self.transitions.LogProb_SimpleInterp(prev_word, word, 
-        #                                             self.w_unigram, self.w_bigram)
 
         return self.transitions.LogProb_Laplace(prev_word, word)        
 
@@ -436,6 +427,10 @@ class BeamSearch:
             if marked is False:
                 unmarked.append(self.source_sent[i])
 
+        # if all marked, no future cost
+        if not unmarked:
+            return 0.0
+
         # if there were no transitions between two words in the sentence
         # seen in our training set, return negative infinity as the probability
         try:
@@ -501,11 +496,11 @@ class BeamSearch:
     def best_viterbi_prob(self, v_probs):
 
         num_cols = len(v_probs)
-        best = None
+        best = float("-inf")
 
         for term in v_probs[num_cols - 1]:
             prob = v_probs[num_cols - 1][term]
-            if best is None or prob > best:
+            if prob > best:
                 best = prob
 
         return best
