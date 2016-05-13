@@ -212,8 +212,12 @@ class BigramLM:
 
         p_unigram = self.unigram_counts[word] / self.total_unigrams
 
-        return log(w_unigram * p_unigram + w_bigram * p_bigram)
-
+        prob = w_unigram * p_unigram + w_bigram * p_bigram
+        if prob > 0:
+            return log(prob)
+        else:
+            return float("-inf")
+            
     # ApplyDeletedInterp
     #
     # args:     held_out_corpus         a held out dataset (distinct from train and test sets)
