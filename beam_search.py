@@ -45,13 +45,13 @@ Other helpful information on the algorithm behind beam search is available in:
 ##################################################################################################
 
 import sys
-from enum import Enum
-from collections import defaultdict
-from math import log, exp
-import bigram
+import collections
+import copy
+from math import log, pow
+from bigram import BigramLM
 
 # enums for pruning methods
-class Prune(Enum):
+class Prune(object):
     THRESHOLD = 1
     HISTOGRAM = 2
 
@@ -68,13 +68,14 @@ class BeamSearch:
     #           prune               the pruning method (THRESHOLD or HISTOGRAM)
     #           pthresh             the pruning threshold
 
-    def __init__(self, training_set, held_out_set, prune=Prune.THRESHOLD, pthresh=5):
+    def __init__(self, training_set, held_out_set, translation_table, 
+                 prune=Prune.HISTOGRAM, pthresh=5):
 
         # TODO : populate all_translations using the training_set
         self.all_translations = translation_table
         
         # populate the language model using the training_set and held out settings
-        self.transitions, self.w_unigram, self.w_bigram = create_bigram_lm(training_set, held_out_set)
+        self.transitions, self.w_unigram, self.w_bigram = self.create_bigram_lm(training_set, held_out_set)
         
         # set the beam search's pruning settings
         self.prune        = prune
@@ -88,7 +89,7 @@ class BeamSearch:
     # returns:  returns a language model for English, trained on the training set, as well as
     #           a weight for unigrams and bigrams, assessed through deleted interpolation
 
-    def create_bigram_lm (training_set, held_out_set):
+    def create_bigram_lm (self, training_set, held_out_set):
 
         model = BigramLM()
         model.EstimateBigrams(training_set) 
@@ -107,9 +108,12 @@ class BeamSearch:
     # returns:  returns the probability of the second word given the first, using simple
     #           linear interpolation for smoothing
 
-    def transition_prob (prev_word, word):
+    def transition_prob (self, prev_word, word):
 
-        return self.transitions.LogProb_SimpleInterp(prev_word, word, w_unigram, w_bigram)
+        # return self.transitions.LogProb_SimpleInterp(prev_word, word, 
+        #                                             self.w_unigram, self.w_bigram)
+
+        return self.transitions.LogProb_Laplace(prev_word, word)        
 
     # relevant_translations
     #
@@ -121,7 +125,7 @@ class BeamSearch:
     # returns:  a dict in the same format of translation_table, but only with the phrases in
     #           source_sent
 
-    def relevant_translations(self):
+    def relevant_translations(self, source_sent):
 
         translations = collections.defaultdict(lambda: collections.defaultdict(float))
 
@@ -133,12 +137,15 @@ class BeamSearch:
 
             for j in range(i, self.num_words):
 
-                curr_phrase += " " + self.source_sent[j]
+                if j is i:
+                    curr_phrase = self.source_sent[j]
+                else:
+                    curr_phrase += " " + self.source_sent[j]
 
-                if curr_phrase is in translation_table:
+                if curr_phrase in self.all_translations:
 
-                    for trans in translation_table[curr_phrase]:
-                        translations[curr_phrase][trans] = translation_table[curr_phrase][trans]
+                    for trans in self.all_translations[curr_phrase]:
+                        translations[curr_phrase][trans] = self.all_translations[curr_phrase][trans]
 
         return translations
 
@@ -150,12 +157,17 @@ class BeamSearch:
 
     def translate (self, source_sent):
 
-        # populate the source-sentence-dependent class elements
+        # convert all the words in the sentence to lowercase and add NULL to the beginning of 
+        # the sentence
+        source_sent = [word.lower() for word in source_sent]
+        source_sent.insert(0, "NULL")
 
+        # populate the source-sentence-dependent class elements
         self.source_sent  = source_sent
         self.num_words    = len(source_sent)
-        self.hyp_stacks   = [None] * num_words
-        self.translations = self.relevant_translations(source_sent, self.all_translations)
+        # self.hyp_stacks   = [[]] * self.num_words
+        self.hyp_stacks = [[] for _ in range(self.num_words)]
+        self.translations = self.relevant_translations(source_sent)
 
         # Tuple structure for candidates (that populate hypothesis stacks):
         #
@@ -169,28 +181,44 @@ class BeamSearch:
 
         null_trans = None
         null_orig  = (None, None)
-        null_marks = ([False] * num_words, 0)
-        null_score = 1.0
+        null_marks = ([False] * self.num_words, 0)
+        null_score = None
         null_bkptr = None
         null_cand  = (null_trans, null_orig, null_marks, null_score, null_bkptr) 
 
-        self.hyp_stacks[0].push(null_cand)
+        # TODO : load the "NULL" translations
+
+        self.hyp_stacks[0].append(null_cand)
 
         for i in range(0, self.num_words):
+
             for (j, hyp) in enumerate(self.hyp_stacks[i], start=0):
 
                 # tuple pointing to the current location of the candidate to expand
                 # (to use as backpointer for expansions of the candidate)
                 curr_loc = (i, j)
 
+                # print hyp
+
                 for new_cand in self.expansions(hyp, curr_loc):
+
+                    # print new_cand[1][0]
+                    # print new_cand[3]
 
                     new_cand_len = new_cand[2][1]
                     self.hyp_stacks[new_cand_len] = self.insert_hyp(new_cand, 
                                                                     self.hyp_stacks[new_cand_len], 
-                                                                    prune, pthresh)
+                                                                    self.prune, self.pthresh)
 
-        return self.backtrace(best_cand(self.hyp_stacks[self.num_words - 1]))
+            # for (i, stack) in enumerate(self.hyp_stacks):
+            #   print "Stack", i, ":", stack
+
+        for i in range(self.num_words - 1, -1, -1):
+            translation = self.backtrace(self.best_cand(self.hyp_stacks[i]))
+            if translation != "No translation found.":
+                return translation.split()
+
+        return "No translation found."
 
     # expansions
     #
@@ -234,15 +262,18 @@ class BeamSearch:
                 # for all possible phrases starting with that word, if the phrase is in the 
                 # translation table, create an expansion using the phrase
 
-                for phrase_end in range(index, self.num_words)
+                for phrase_end in range(index, self.num_words):
 
-                    curr_phrase = curr_phrase + " " + self.source_sent[phrase_end]
+                    if phrase_end is index:
+                        curr_phrase = self.source_sent[phrase_end]
+                    else:
+                        curr_phrase = curr_phrase + " " + self.source_sent[phrase_end]
 
-                    if curr_phrase is in self.translations:
+                    if curr_phrase in self.translations:
 
                         for poss_trans in self.translations[curr_phrase]:
-                            new_exp = create_expansion(poss_trans, index, phrase_end + 1,
-                                                       curr_marked, curr_len, curr_score, curr_loc)
+                            new_exp = self.create_expansion(poss_trans, index, phrase_end + 1,
+                                                            curr_marked, curr_len, curr_score, curr_loc)
                             if new_exp is not None:
                                 exps.append(new_exp)
 
@@ -269,16 +300,19 @@ class BeamSearch:
 
         exp_foreign = ""
         for i in range(index, phrase_end):
-            exp_foreign = exp_foreign + " " + self.source_sent[i]
+            if i is index:
+                exp_foreign = self.source_sent[i]
+            else:
+                exp_foreign = exp_foreign + " " + self.source_sent[i]
 
         exp_index   = (index, phrase_end)
 
         # while traversing through the marked array, ensure that none of the words in the phrase
         # have been previously translated
-        exp_marked  = curr_marked
+        exp_marked  = copy.deepcopy(curr_marked)
         for i in range(index, phrase_end):
-            if curr_marked[i] is False:
-                curr_marked[i] = True
+            if exp_marked[i] is False:
+                exp_marked[i] = True
             else:
                 return None
 
@@ -287,12 +321,12 @@ class BeamSearch:
 
         # in the cand passed to the score function, the score of the candidate is
         # left blank (this is the value to be calculated)
-        exp_score  = score((exp_word, 
-                            (exp_foreign, exp_index),
-                            (exp_marked, exp_len), 
-                            None,
-                            exp_bkptr),
-                           curr_score)
+        exp_score  = self.score((exp_word, 
+                                 (exp_foreign, exp_index),
+                                 (exp_marked, exp_len), 
+                                None,
+                                exp_bkptr),
+                                curr_score)
 
         return ((exp_word, 
                     (exp_foreign, exp_index),
@@ -314,11 +348,7 @@ class BeamSearch:
 
     def insert_hyp (self, hyp, hypStack, prune, pthresh):
 
-        numHyps  = len(hypStack)
-        hypScore = score(hyp)
-
-        # add the hyp to the stack and correctly order it
-        hypStack.append((hyp, hypScore))
+        hypStack.append(hyp)
         hypStack.sort(key=lambda tup: tup[3])
 
         # prune the stack as needed and return the new stack
@@ -333,6 +363,7 @@ class BeamSearch:
 
     def score (self, hyp, prev_cost):
 
+        print self.present_cost(hyp, prev_cost), self.future_cost(hyp)
         return self.present_cost(hyp, prev_cost) + self.future_cost(hyp)
 
     # present_cost
@@ -359,17 +390,25 @@ class BeamSearch:
 
         # present_cost formula from Jurafsky, p. 36 of "Machine Translation" chapter
         translation_p = self.translations[foreign][translated]
-        distortion_p  = self.distortion(hyp)
-        transition_p  = self.transition_prob(get_last_word(prev_word), get_first_word(translated))
 
-        return prev_cost + math.log(translation_p) + math.log(distortion_p) 
-               + math.log(transition_p)
+        # only take distortion and transition into account when there is valid previous word
+        if prev_word is not None:
+        
+            distortion_p  = self.distortion(hyp)
+            transition_p  = self.transition_prob(self.get_last_word(prev_word), 
+                                                 self.get_first_word(translated))
+
+            return prev_cost + translation_p + log(distortion_p) + transition_p
+
+        else:
+
+            return translation_p
 
     def get_first_word (self, phrase):
-        return phrase..split(' ', 1)[0]
+        return phrase.split(' ', 1)[0]
 
     def get_last_word (self, phrase):
-        return phrase..split(' ', 1)[-1]
+        return phrase.split(' ', 1)[-1]
 
     # distortion
     # 
@@ -385,8 +424,7 @@ class BeamSearch:
         (prev_stack, stack_loc) = hyp[4]
         prev_hyp        = self.hyp_stacks[prev_stack][stack_loc]
         (_, prev_end)   = prev_hyp[1][1]
-
-        return exp(alpha, abs(curr_start - prev_end - 1))
+        return pow(alpha, abs(curr_start - prev_end - 1))
 
     # future_cost
     #
@@ -409,6 +447,7 @@ class BeamSearch:
             v_probs = self.populate_viterbi_probs(unmarked)
         except UnknownTransitionError:
             return float("-inf")
+            # return -100
 
         # else return the best log probability
         return self.best_viterbi_prob(v_probs, sent)
@@ -423,7 +462,7 @@ class BeamSearch:
 
         v_probs = []
 
-        for (i, (word, _)) in enumerate(sent, start=0):
+        for (i, word) in enumerate(sent, start=0):
 
             v_probs.append({})
             
@@ -444,12 +483,14 @@ class BeamSearch:
                     trans_prob = self.translations[sent[i]][trans]
                     best_prob  = None
 
+                    # print v_probs[i - 1]
                     for prev_trans in v_probs[i - 1]:
                         curr_prob = trans_prob * self.transition_prob(prev_trans, trans)
+                        # print curr_prob
                         if best_prob is None or curr_prob > best_prob:
                             best_prob = curr_prob
 
-                    if prob is not None;
+                    if best_prob is not None:
                         v_probs[i][trans] = best_prob
 
                 if len(v_probs[i]) is 0:
@@ -484,11 +525,11 @@ class BeamSearch:
 
     def prune_stack (self, hypStack, prune, pthresh):
 
-        minScore = min_score(hypStack, prune, pthresh)
+        minScore = self.min_score(hypStack, prune, pthresh)
 
         # while the lowest entry in the hypStack is less than the minScore, continue dropping
         # entries from the stack
-        while hypStack[3] < minScore:
+        while len(hypStack) > 0 and hypStack[0][3] < minScore:
             hypStack.pop(0)
 
         return hypStack
@@ -506,20 +547,20 @@ class BeamSearch:
         if prune is Prune.THRESHOLD:
 
             if len(hypStack) is 0:
-                return 0.0
+                return float("-inf")
 
             # pthresh is the alpha value
             else:
-                return pthresh * hypStack[0][1]
+                return pthresh * hypStack[-1][1]
 
         elif prune is Prune.HISTOGRAM:
 
             if len(hypStack) < pthresh:
-                return 0.0
+                return float("-inf")
 
             # pthresh is the number of values to keep in the hypStack at once
             else:
-                return hypStack[pthresh - 1][1]
+                return hypStack[-pthresh][1]
 
         else:
             raise ValueError("Invalid pruning metric supplied.")
@@ -535,7 +576,7 @@ class BeamSearch:
         best = None
 
         for cand in hyp_stack:
-            if cand[3] > best[3]:
+            if best is None or cand[3] > best[3]:
                 best = cand
 
         return best
@@ -547,6 +588,9 @@ class BeamSearch:
     # returns:  the sentence with the candidate at the end
 
     def backtrace (self, cand):
+
+        if cand is None:
+            return "No translation found."
 
         curr_word  = cand[0]
 
@@ -561,10 +605,13 @@ class BeamSearch:
             (prev_stack, index) = cand[4]
             prev_cand  = self.hyp_stacks[prev_stack][index]
 
-            prev_words = backtrace(prev_cand)
+            # print cand
+            # print (prev_stack, index)
+            # print prev_cand
+            prev_words = self.backtrace(prev_cand)
 
             # space-handling; don't prepend a space to the beginning of a sentence
             if prev_words == "":
                 return curr_word
-            else
+            else:
                 return prev_words + " " + curr_word
