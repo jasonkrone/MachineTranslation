@@ -4,13 +4,14 @@
 from collections import defaultdict
 from math import exp, pow, log
 import copy
-
+import codecs
+import csv
 
 MAX_PHRASE_LEN = 7
 ALIGN_START_TOKEN = '({'
 ALIGN_END_TOKEN   = '})'
 
-   
+
 class Symmetrizer(object):
 
     def __init__(self, e2f, f2e, e_corpus, f_corpus):
@@ -20,19 +21,21 @@ class Symmetrizer(object):
         self._fcorp = f_corpus
         # translations[foreign_phrase][englist_phrase] = log_prob
         self.translations = defaultdict((lambda : defaultdict(lambda : float('-inf'))))
-        # the distortion constant
         self.alpha = float()
 
 
-    ''' writes translations to the given file '''
-    def write_translations_to_file(file_name):
-        with open(file_name, 'w') as f:
-            rows = list()
-            for f in self.translations:
-                for e in self.translations[f]:
-                    prob = self.translations[f][e]
-                    rows.append([f, e, prob])
-            f.writerows(rows)
+    ''' writes self.translations to the given file '''
+    def write_translations_to_file(self, file_name):
+        rows = list()
+        for f in self.translations:
+            for e in self.translations[f]:
+                prob = self.translations[f][e]
+                # encode to take care of special chars (accents on spanish chars ...etc)
+                rows.append([f.encode("utf-8"), e.encode("utf-8"), prob])
+
+        with open(file_name, 'w+') as f:
+            writer = csv.writer(f, delimiter=' ')
+            writer.writerows(rows)
 
 
     ''' fills the phrase translation table using e2f and f2e alignments'''
@@ -55,7 +58,6 @@ class Symmetrizer(object):
             e_count = len(e_phrase_pairs)
             for f in e_phrase_pairs:
                 prob = float(e_phrase_pairs[f]) / e_count
-                print prob
                 self.translations[f][e] = log(prob)
 
         # prune table -- limit translations options to 20 for a phrase
@@ -161,9 +163,17 @@ class Symmetrizer(object):
         while True:
             fe = f_end
             while True:
-                # add phrase pair ([e_start, e_end], [fs, fe]) to E
-                e_phrase = ' '.join(e_sent[i] for i in xrange(e_start, e_end+1))
-                f_phrase = ' '.join(f_sent[i] for i in xrange(fs, fe+1))
+                try:
+                    # add phrase pair ([e_start, e_end], [fs, fe]) to E
+                    e_phrase = ' '.join(e_sent[i] for i in xrange(e_start, e_end+1))
+                    f_phrase = ' '.join(f_sent[i] for i in xrange(fs, fe+1))
+                except: # debug output
+                    print 'A', A
+                    print 'e_sent: ', e_sent
+                    print 'f_sent: ', f_sent
+                    print 'f_start: ', f_start
+                    print 'f_end: ', f_end
+
                 if (fe-fs) <= MAX_PHRASE_LEN and (e_end-e_start) <= MAX_PHRASE_LEN:
                     E.add(((e_start, e_end+1), e_phrase, f_phrase))
                 fe += 1
@@ -175,8 +185,60 @@ class Symmetrizer(object):
         return E
 
 
+########### FUNCTIONS FOR READING IN DATA FROM GIZA ALIGNMENT5 FILES #################
+
+
+''' creates an instance of Symmetrizer using the given alignment files '''
+def symmetrizer_from_alignment_files(e2f_file, f2e_file):
+    e2f, f_corpus = alignment_trg_corp(e2f_file, True)
+    f2e, e_corpus = alignment_trg_corp(f2e_file, False)
+
+    e2f_clean, f2e_clean = list(), list()
+    f_corpus_clean, e_corpus_clean = list(), list()
+
+    # clean the data
+    for e_align, f_align, e_sent, f_sent in zip(e2f, f2e, e_corpus, f_corpus):
+        e_len, f_len = len(e_sent), len(f_sent)
+        if alignment_in_bounds(e_align, e_len, f_len) and alignment_in_bounds(f_align, e_len, f_len):
+            e2f_clean.append(e_align)
+            f2e_clean.append(f_align)
+            e_corpus_clean.append(e_sent)
+            f_corpus_clean.append(f_sent)
+
+    return Symmetrizer(e2f_clean, f2e_clean, e_corpus_clean, f_corpus_clean)
+
+
+''' determines if the alignment points are consitent with the given sentence lengths '''
+def alignment_in_bounds(A, e_len, f_len):
+    for (e, f) in A:
+        if e >= e_len or e < -1 or f < -1 or f >= f_len:
+            return False
+    return True
+
+
+''' returns the alignment and target corpus for the given alignment file'''
+def alignment_trg_corp(align_file, src_is_english):
+    corpus = list()
+    alignments = list()
+
+    f = codecs.open(align_file, encoding='utf-8', mode='r')
+    lines = f.readlines()
+    for i, line in enumerate(lines):
+        # target sentence line
+        if i % 3 == 1:
+            sent = ['NULL'] + line.split()
+            corpus.append(sent)
+        # alignment line
+        elif i % 3 == 2:
+            alignments.append(alignment_from_line(line, src_is_english))
+    f.close()
+
+    return alignments, corpus
+
+
+''' returns the parsed word alignment set from the given line '''
 def alignment_from_line(line, src_is_english):
-    cur_word_idx = 0
+    cur_word_idx = -1
     alignment = set()
     tokens = line.split()
     in_alignment = False
@@ -199,31 +261,11 @@ def alignment_from_line(line, src_is_english):
     return alignment
 
 
-''' returns the alignment and target corpus for the given alignment file'''
-def alignment_trg_corp(align_file, src_is_english):
-    corpus = list()
-    alignments = list()
-    with open(e2f_file, 'r') as f:
-        lines = f.readlines        
-        for i, line in enumerate(lines):
-            # target sentence line
-            if i % 3 == 1: 
-                sent = ['NULL'] + line.split()
-                corpus.append(sent)
-            # alignment line
-            elif i % 3 == 2:
-                alignments.append(alignment_from_line(line, src_is_english))
-    return alignments, corpus
-
-
-''' creates an instance of Symmetrizer using the given alignment files '''
-def symetrizer_from_alignment_files(e2f_file, f2e_file):
-    e2f, f_corpus = alignment_trg_corp(e2f_file, True)
-    f2e, e_corpus = alignment_trg_corp(f2e_file, False)
-    return Symmetrizer(e2f, f2e, e_corpus, f_corpus)
- 
-
 def main():
+    sym = symmetrizer_from_alignment_files('data/100000en_to_es.VA3.final', 'data/100000es_to_en.VA3.final')
+    sym.symmetrize()
+    sym.write_translations_to_file('100000_trans.txt')
+
     # read in the first 100 tokenized sentences
     # e_corp = readlines.split()
     # f_corp = readlines.split()
