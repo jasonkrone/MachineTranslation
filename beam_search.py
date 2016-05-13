@@ -68,10 +68,9 @@ class BeamSearch:
     #           prune               the pruning method (THRESHOLD or HISTOGRAM)
     #           pthresh             the pruning threshold
 
-    def __init__(self, training_set, held_out_set, translation_table, 
+    def __init__(self, training_set, translation_table, 
                  prune=Prune.HISTOGRAM, pthresh=5):
 
-        # TODO : populate all_translations using the training_set
         self.all_translations = translation_table
         
         # populate the language model using the training_set and held out settings
@@ -166,7 +165,7 @@ class BeamSearch:
         self.source_sent  = source_sent
         self.num_words    = len(source_sent)
         # self.hyp_stacks   = [[]] * self.num_words
-        self.hyp_stacks = [[] for _ in range(self.num_words)]
+        self.hyp_stacks = [[] for _ in range(self.num_words + 1)]
         self.translations = self.relevant_translations(source_sent)
 
         # Tuple structure for candidates (that populate hypothesis stacks):
@@ -186,11 +185,11 @@ class BeamSearch:
         null_bkptr = None
         null_cand  = (null_trans, null_orig, null_marks, null_score, null_bkptr) 
 
-        # TODO : load the "NULL" translations
-
         self.hyp_stacks[0].append(null_cand)
 
-        for i in range(0, self.num_words):
+        for i in range(0, self.num_words + 1):
+
+            print "STACK", i, "..."
 
             for (j, hyp) in enumerate(self.hyp_stacks[i], start=0):
 
@@ -198,20 +197,13 @@ class BeamSearch:
                 # (to use as backpointer for expansions of the candidate)
                 curr_loc = (i, j)
 
-                # print hyp
-
                 for new_cand in self.expansions(hyp, curr_loc):
 
-                    # print new_cand[1][0]
-                    # print new_cand[3]
-
                     new_cand_len = new_cand[2][1]
+
                     self.hyp_stacks[new_cand_len] = self.insert_hyp(new_cand, 
                                                                     self.hyp_stacks[new_cand_len], 
                                                                     self.prune, self.pthresh)
-
-            # for (i, stack) in enumerate(self.hyp_stacks):
-            #   print "Stack", i, ":", stack
 
         for i in range(self.num_words - 1, -1, -1):
             translation = self.backtrace(self.best_cand(self.hyp_stacks[i]))
@@ -263,6 +255,9 @@ class BeamSearch:
                 # translation table, create an expansion using the phrase
 
                 for phrase_end in range(index, self.num_words):
+
+                    if curr_marked[phrase_end] is True:
+                        break
 
                     if phrase_end is index:
                         curr_phrase = self.source_sent[phrase_end]
@@ -317,6 +312,7 @@ class BeamSearch:
                 return None
 
         exp_len     = curr_len + (phrase_end - index)
+
         exp_bkptr   = curr_loc
 
         # in the cand passed to the score function, the score of the candidate is
@@ -363,7 +359,6 @@ class BeamSearch:
 
     def score (self, hyp, prev_cost):
 
-        print self.present_cost(hyp, prev_cost), self.future_cost(hyp)
         return self.present_cost(hyp, prev_cost) + self.future_cost(hyp)
 
     # present_cost
@@ -447,10 +442,9 @@ class BeamSearch:
             v_probs = self.populate_viterbi_probs(unmarked)
         except UnknownTransitionError:
             return float("-inf")
-            # return -100
 
         # else return the best log probability
-        return self.best_viterbi_prob(v_probs, sent)
+        return self.best_viterbi_prob(v_probs)
 
     # populate_viterbi_probs
     # 
@@ -483,10 +477,9 @@ class BeamSearch:
                     trans_prob = self.translations[sent[i]][trans]
                     best_prob  = None
 
-                    # print v_probs[i - 1]
                     for prev_trans in v_probs[i - 1]:
                         curr_prob = trans_prob * self.transition_prob(prev_trans, trans)
-                        # print curr_prob
+
                         if best_prob is None or curr_prob > best_prob:
                             best_prob = curr_prob
 
@@ -502,14 +495,16 @@ class BeamSearch:
     #
     # args:    vprobs   a table of Viterbi probabilities (generated via PopulateViterbiProbs)
     #
-    # returns: the minimum Viterbi probability in the (last column of the) given table of Viterbi #          probabilities
+    # returns: the minimum Viterbi probability in the (last column of the) given table of Viterbi 
+    #          probabilities
 
     def best_viterbi_prob(self, v_probs):
 
         num_cols = len(v_probs)
         best = None
 
-        for prob in v_probs[num_cols - 1]:
+        for term in v_probs[num_cols - 1]:
+            prob = v_probs[num_cols - 1][term]
             if best is None or prob > best:
                 best = prob
 
@@ -604,10 +599,6 @@ class BeamSearch:
 
             (prev_stack, index) = cand[4]
             prev_cand  = self.hyp_stacks[prev_stack][index]
-
-            # print cand
-            # print (prev_stack, index)
-            # print prev_cand
             prev_words = self.backtrace(prev_cand)
 
             # space-handling; don't prepend a space to the beginning of a sentence

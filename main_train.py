@@ -13,11 +13,20 @@ def main():
     english = tokenize("data/100ktok.low.en")
     spanish = tokenize("data/100ktok.low.es")
 
-    training_set, held_out_set, test_set = get_datasets(english, spanish)
-    translations = get_word_translations("100000_trans.txt")
-    search = BeamSearch(training_set, held_out_set, translations)
+    training_set, test_set, translated_set = get_datasets(english, spanish)
+    translations = get_word_translations("3000_trans.txt")
+    search = BeamSearch(training_set, translations)
 
-    print search.translate(test_set[8])
+    test_output = open('trans.txt','w')
+    true_output = open('true.txt','w')
+
+    for i in range(len(test_set)):
+        print i
+        test_output.write(' '.join(search.translate(test_set[i])) + "\n")
+        true_output.write(' '.join(translated_set[i]) + "\n")
+
+    test_output.close()
+    true_output.close()
 
 def tokenize(filename):
 
@@ -36,11 +45,11 @@ def tokenize(filename):
 
 def get_datasets(english, spanish):
 
-    training_set = english[:90000]
-    held_out_set = english[90000:95000]
+    training_set = english[:95000]
     test_set = spanish[95000:]
+    translated_set = english[95000:]
 
-    return training_set, held_out_set, test_set
+    return training_set, held_out_set, test_set, translated_set
 
 def get_word_translations(file_name):
     reader = None
