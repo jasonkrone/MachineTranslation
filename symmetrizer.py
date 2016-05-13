@@ -3,6 +3,7 @@
 
 from collections import defaultdict
 from math import exp, pow, log
+import copy
 
 class Symmetrizer(object):
 
@@ -48,8 +49,8 @@ class Symmetrizer(object):
         intersect = e2f_align.intersection(f2e_align)
         union     = e2f_align.union(f2e_align)
         alignment = self._grow_diag(intersect, union, dim)
-        alignment = final(e2f_align, alignment)
-        alignment = final(f2e_align, alignment)
+        alignment = self._final(e2f_align, alignment)
+        alignment = self._final(f2e_align, alignment)
         return alignment
 
 
@@ -61,11 +62,14 @@ class Symmetrizer(object):
 
         while points_added:
             points_added = False
-            for aligned_pair in A:
+            A_copy = copy.copy(A)
+            for aligned_pair in A_copy:
                 for (e_new, f_new) in self._neighbors(aligned_pair, dim):
                     # e-new not aligned or f-new not aligned
                     if (e_new not in e_aligned or f_new not in f_aligned) and (e_new, f_new) in union:
                         A.add((e_new, f_new))
+                        e_aligned.append(e_new)
+                        f_aligned.append(f_new)
                         points_added = True
         return A
 
@@ -76,17 +80,19 @@ class Symmetrizer(object):
         neighboring = [(-1,0),(0,-1),(1,0),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)]
         x, y = aligned_pair
         points = [(x + s, y + t) for s, t in neighboring]
-        return filter(points, lambda p : (0 <= p[0] <= e_len-1) and (0 <= p[1] <= f_len-1))
+        return filter(lambda p : (0 <= p[0] <= e_len-1) and (0 <= p[1] <= f_len-1), points)
 
 
     ''' adds select points from a to the alignment A'''
-    def _final(a, A):
+    def _final(self, a, A):
         e_aligned = [e for (e, _) in A]
         f_aligned = [f for (_, f) in A]
         # words aligned in a
         for (e_new, f_new) in a:
-            if e_new not in e_aligned and f_new not in f_aligned:
+            if e_new not in e_aligned or f_new not in f_aligned:
                 A.add((e_new, f_new))
+                e_aligned.append(e_new)
+                f_aligned.append(f_new)
         return A
 
 
@@ -147,11 +153,16 @@ def main():
     # e2f alignments
     # f2e alignments
 
-    srctext = "michael assumes that he will stay in the house".split()
-    trgtext = "michael geht davon aus , dass er im haus bleibt".split()
-    alignment = [(0,0), (1,1), (1,2), (1,3), (2,5), (3,6), (4,9), (5,9), (6,7), (7,7), (8,8)]
+    trgtext = 'maria no dio una bofetada a la bruja verde'.split()
+    srctext = 'mary did not slap the green witch'.split()
+
+    e2f_align = set([(0, 0), (1, 5), (2, 1), (3, 2), (3, 3), (3, 4), (4, 6), (5, 8), (6, 7)])
+    f2e_align = set([(0, 0), (1, 1), (2, 1), (3, 4), (4, 6), (5, 8), (6, 7)])
+
     sym = Symmetrizer(None, None, None, None)
-    phrases = sym._extract_phrase_pairs(alignment, srctext, trgtext)
+    dim = (len(srctext), len(trgtext))
+    A = sym._grow_diag_final(e2f_align, f2e_align, dim)
+    phrases = sym._extract_phrase_pairs(A, srctext, trgtext)
 
     dlist = {}
     for p, a, b in phrases:
