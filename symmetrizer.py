@@ -5,14 +5,14 @@ from collections import defaultdict
 from math import exp, pow, log
 import copy
 
-MAX_PHRASE_LEN = 7
 
+MAX_PHRASE_LEN = 7
+ALIGN_START_TOKEN = '({'
+ALIGN_END_TOKEN   = '})'
+
+   
 class Symmetrizer(object):
 
-    # TODO: must parse files and put in e2f , f2e format
-    # these can be an array of sets of alignments
-    # change alignments to be 0 indexed and fit string indicies
-    # fcorpus and ecorpus just list of sentences of toks
     def __init__(self, e2f, f2e, e_corpus, f_corpus):
         self._e2f = e2f
         self._f2e = f2e
@@ -22,6 +22,17 @@ class Symmetrizer(object):
         self.translations = defaultdict((lambda : defaultdict(lambda : float('-inf'))))
         # the distortion constant
         self.alpha = float()
+
+
+    ''' writes translations to the given file '''
+    def write_translations_to_file(file_name):
+        with open(file_name, 'w') as f:
+            rows = list()
+            for f in self.translations:
+                for e in self.translations[f]:
+                    prob = self.translations[f][e]
+                    rows.append([f, e, prob])
+            f.writerows(rows)
 
 
     ''' fills the phrase translation table using e2f and f2e alignments'''
@@ -37,8 +48,6 @@ class Symmetrizer(object):
             # update phrase pair counts
             for _, e, f in phrases:
                 phrase_pairs[e][f] += 1
-
-        print phrase_pairs
 
         # fill the translation table
         for e in phrase_pairs:
@@ -56,12 +65,7 @@ class Symmetrizer(object):
             trans = sorted(trans, key= lambda x: x[1], reverse=True)[:20]
             self.translations[f] = dict(trans)
 
-        # fill phrase_translations (probably using regex).
-        # phi(t|s) = count(s, t) / count(s)
         # note: can potentially imporve scoring by smoothing
-        # may want to prune the phrase table i.e. remove some phrase pairs
-        # limit translation options for each phrase (often 20-30)
-        # (just grab the 20 most probably once filled and re-normalize)
         # can use chi squared stats based pruning (prob not this)
 
 
@@ -170,47 +174,60 @@ class Symmetrizer(object):
                 break
         return E
 
+
+def alignment_from_line(line, src_is_english):
+    cur_word_idx = 0
+    alignment = set()
+    tokens = line.split()
+    in_alignment = False
+
+    for t in tokens:
+        if t == ALIGN_START_TOKEN:
+            in_alignment = True
+        elif t == ALIGN_END_TOKEN:
+            in_alignment = False
+        elif in_alignment and t.isdigit():
+            # subtract 1 because we are 0 indexing and giza 1 indexes
+            if src_is_english:
+                alignment.add((cur_word_idx, int(t)-1))
+            else:
+                alignment.add((int(t)-1, cur_word_idx))
+        elif in_alignment is False:
+            # we hit a token
+            cur_word_idx += 1
+
+    return alignment
+
+
+''' returns the alignment and target corpus for the given alignment file'''
+def alignment_trg_corp(align_file, src_is_english):
+    corpus = list()
+    alignments = list()
+    with open(e2f_file, 'r') as f:
+        lines = f.readlines        
+        for i, line in enumerate(lines):
+            # target sentence line
+            if i % 3 == 1: 
+                sent = ['NULL'] + line.split()
+                corpus.append(sent)
+            # alignment line
+            elif i % 3 == 2:
+                alignments.append(alignment_from_line(line, src_is_english))
+    return alignments, corpus
+
+
+''' creates an instance of Symmetrizer using the given alignment files '''
+def symetrizer_from_alignment_files(e2f_file, f2e_file):
+    e2f, f_corpus = alignment_trg_corp(e2f_file, True)
+    f2e, e_corpus = alignment_trg_corp(f2e_file, False)
+    return Symmetrizer(e2f, f2e, e_corpus, f_corpus)
+ 
+
 def main():
     # read in the first 100 tokenized sentences
     # e_corp = readlines.split()
     # f_corp = readlines.split()
     # e2f alignments
     # f2e alignments
-
-    trgtext = ['maria no dio una bofetada a la bruja verde'.split()]
-    srctext = ['mary did not slap the green witch'.split()]
-
-    e2f_align = [set([(0, 0), (1, 5), (2, 1), (3, 2), (3, 3), (3, 4), (4, 6), (5, 8), (6, 7)])]
-    f2e_align = [set([(0, 0), (1, 1), (2, 1), (3, 4), (4, 6), (5, 8), (6, 7)])]
-
-    sym = Symmetrizer(e2f_align, f2e_align, srctext, trgtext)
-    sym.symmetrize()
-    print sym.translations
-
-    '''
-    dim = (len(srctext), len(trgtext))
-    A = sym._grow_diag_final(e2f_align, f2e_align, dim)
-    phrases = sym._extract_phrase_pairs(A, srctext, trgtext)
-
-    dlist = {}
-    for p, a, b in phrases:
-        if a in dlist:
-            dlist[a][1].append(b)
-        else:
-            dlist[a] = [p, [b]]
-
-    # Sort the list of translations based on their length.  Shorter phrases first.
-    for v in dlist.values():
-        v[1].sort(key=lambda x: len(x))
-
-    # Function to help sort according to book example.
-    def ordering(p):
-        k,v = p
-        return v[0]
-
-    for i, p in enumerate(sorted(dlist.items(), key = ordering), 1):
-        k, v = p
-        print '({0:2}) {1} {2} - {3}'.format(i, v[0], k, ' ; '.join(v[1]))
-    '''
 
 main()
