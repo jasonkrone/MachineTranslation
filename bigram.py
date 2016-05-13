@@ -114,20 +114,18 @@ class BigramLM:
 
         for unigram in self.unigram_counts:
 
-            if unigram is not end_token:
+            # for the current word:
+            # - curr_uq_successors: number of unique successors
+            # - curr_total_successors: total number of successors
+            curr_uq_successors = self.bigram_counts[unigram]
+            curr_total_successors = sum(curr_uq_successors.values())
 
-                # for the current word:
-                # - curr_uq_successors: number of unique successors
-                # - curr_total_successors: total number of successors
-                curr_uq_successors = self.bigram_counts[unigram]
-                curr_total_successors = sum(curr_uq_successors.values())
+            for successor in curr_uq_successors:
 
-                for successor in curr_uq_successors:
+                successor_freq = curr_uq_successors[successor]
 
-                    successor_freq = curr_uq_successors[successor]
-
-                    p_bigram = successor_freq / curr_total_successors
-                    self.log_probs[unigram][successor] = log(p_bigram)
+                p_bigram = successor_freq / curr_total_successors
+                self.log_probs[unigram][successor] = log(p_bigram)
 
     # CalcLogProbs
     #
@@ -214,8 +212,12 @@ class BigramLM:
 
         p_unigram = self.unigram_counts[word] / self.total_unigrams
 
-        return log(w_unigram * p_unigram + w_bigram * p_bigram)
-
+        prob = w_unigram * p_unigram + w_bigram * p_bigram
+        if prob > 0:
+            return log(prob)
+        else:
+            return float("-inf")
+            
     # ApplyDeletedInterp
     #
     # args:     held_out_corpus         a held out dataset (distinct from train and test sets)
