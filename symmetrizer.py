@@ -262,9 +262,24 @@ def alignment_from_line(line, src_is_english):
 
 
 def main():
-    sym = symmetrizer_from_alignment_files('data/100000en_to_es.VA3.final', 'data/100000es_to_en.VA3.final')
-    sym.symmetrize()
-    sym.write_translations_to_file('100000_trans.txt')
+    sym = symmetrizer_from_alignment_files('data/3000en_to_es.VA3.final', 'data/3000es_to_en.VA3.final')
+    #sym.symmetrize()
+    counts = defaultdict((lambda : defaultdict(lambda : int())))
+
+    for e_sent, f_sent, e2f_align, f2e_align in zip(sym._ecorp, sym._fcorp, sym._e2f, sym._f2e):
+        alignment = sym._grow_diag_final(e2f_align, f2e_align, (len(e_sent),len(f_sent)))
+        for e, f in alignment:
+            counts[e_sent[e]][f_sent[f]] += 1
+
+        # fill the translation table
+        for e in counts:
+            e_word_pairs = counts[e]
+            e_count = len(e_word_pairs)
+            for f in e_word_pairs:
+                prob = float(e_word_pairs[f]) / e_count
+                sym.translations[f][e] = log(prob)
+
+    sym.write_translations_to_file('3000_trans.txt')
 
     # read in the first 100 tokenized sentences
     # e_corp = readlines.split()
