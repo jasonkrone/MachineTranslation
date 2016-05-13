@@ -46,6 +46,9 @@ Other helpful information on the algorithm behind beam search is available in:
 
 import sys
 from enum import Enum
+from collections import defaultdict
+from math import log, exp
+import bigram
 
 # enums for pruning methods
 class Prune(Enum):
@@ -60,25 +63,53 @@ class BeamSearch:
 
     # init
     #
-    # args:     source_sent         the foreign language sentence (to translate)
-    #           translation_table   dict, takes a first key (the word) and return a list of
+    # args:     translation_table   dict, takes a first key (the word) and return a list of
     #                               all possible translations for that first key
-    #           transition_table    dict, takes a first key (word) and then a second
-    #                               key (another word) and return the probability that 
-    #                               the second word follows the first in a given sentence
     #           prune               the pruning method (THRESHOLD or HISTOGRAM)
     #           pthresh             the pruning threshold
 
-    def __init__(self, source_sent, translation_table, transition_table,
-                 prune=Prune.THRESHOLD, pthresh=5):
+    def __init__(self, training_set, held_out_set, prune=Prune.THRESHOLD, pthresh=5):
 
-        self.source_sent  = source_sent
-        self.num_words    = len(source_sent)
-        self.hyp_stacks   = [None] * num_words
-        self.transitions  = transition_table
-        self.translations = self.relevant_translations(source_sent, translation_table)
+        # TODO : populate all_translations using the training_set
+        self.all_translations = translation_table
+        
+        # populate the language model using the training_set and held out settings
+        self.transitions, self.w_unigram, self.w_bigram = create_bigram_lm(training_set, held_out_set)
+        
+        # set the beam search's pruning settings
         self.prune        = prune
         self.pthresh      = pthresh
+
+    # create_bigram_lm
+    #
+    # args:     training_set        a training set (English) with which to construct the LM
+    #           held_out_set        held out set (English)
+    # 
+    # returns:  returns a language model for English, trained on the training set, as well as
+    #           a weight for unigrams and bigrams, assessed through deleted interpolation
+
+    def create_bigram_lm (training_set, held_out_set):
+
+        model = BigramLM()
+        model.EstimateBigrams(training_set) 
+
+        held_out_model = BigramLM()
+        held_out_model.EstimateBigrams(held_out_set)
+        w_unigram, w_bigram = held_out_model.ApplyDeletedInterp(held_out_set)
+
+        return model, w_unigram, w_bigram
+
+    # transition_prob
+    #
+    # args:     prev_word           the first word in the word pair
+    #           word                the second word in the word pair
+    # 
+    # returns:  returns the probability of the second word given the first, using simple
+    #           linear interpolation for smoothing
+
+    def transition_prob (prev_word, word):
+
+        return self.transitions.LogProb_SimpleInterp(prev_word, word, w_unigram, w_bigram)
 
     # relevant_translations
     #
@@ -113,11 +144,18 @@ class BeamSearch:
 
     # translate
     #
-    # args:     source      the source (foreign) sentence
+    # args:     source_sent     the source (foreign) sentence
     #
     # returns:  the hypothesis for best translated sentence
 
-    def translate (self):
+    def translate (self, source_sent):
+
+        # populate the source-sentence-dependent class elements
+
+        self.source_sent  = source_sent
+        self.num_words    = len(source_sent)
+        self.hyp_stacks   = [None] * num_words
+        self.translations = self.relevant_translations(source_sent, self.all_translations)
 
         # Tuple structure for candidates (that populate hypothesis stacks):
         #
@@ -200,9 +238,9 @@ class BeamSearch:
 
                     curr_phrase = curr_phrase + " " + self.source_sent[phrase_end]
 
-                    if curr_phrase is in self.transitions:
+                    if curr_phrase is in self.translations:
 
-                        for poss_trans in self.transitions[curr_phrase]:
+                        for poss_trans in self.translations[curr_phrase]:
                             new_exp = create_expansion(poss_trans, index, phrase_end + 1,
                                                        curr_marked, curr_len, curr_score, curr_loc)
                             if new_exp is not None:
@@ -322,7 +360,7 @@ class BeamSearch:
         # present_cost formula from Jurafsky, p. 36 of "Machine Translation" chapter
         translation_p = self.translations[foreign][translated]
         distortion_p  = self.distortion(hyp)
-        transition_p  = self.transitions[get_last_word(prev_word)][get_first_word(translated)]
+        transition_p  = self.transition_prob(get_last_word(prev_word), get_first_word(translated))
 
         return prev_cost + math.log(translation_p) + math.log(distortion_p) 
                + math.log(transition_p)
@@ -407,7 +445,7 @@ class BeamSearch:
                     best_prob  = None
 
                     for prev_trans in v_probs[i - 1]:
-                        curr_prob = trans_prob * self.transitions[prev_trans][trans]
+                        curr_prob = trans_prob * self.transition_prob(prev_trans, trans)
                         if best_prob is None or curr_prob > best_prob:
                             best_prob = curr_prob
 
