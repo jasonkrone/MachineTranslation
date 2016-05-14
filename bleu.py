@@ -3,6 +3,7 @@
 
 from collections import defaultdict, counter
 from math import exp, pow, log
+import sys
 
 START_TOKEN = '<S>'
 END_TOKEN   = '</S>'
@@ -46,8 +47,8 @@ class Bleu(object):
         ngram_sent_counts = list()
 
         # pad sentences
-        start_padding = [START_TOKEN] * n # might be n - 1
-        end_padding   = [END_TOKEN] * n
+        start_padding = [START_TOKEN] * n-1
+        end_padding   = [END_TOKEN] * n-1
         for sent in corpus:
             sent[0:0] = start_padding
             sent.extend(end_padding)
@@ -66,5 +67,14 @@ class Bleu(object):
     def _ngrams_for_sent(self, n, sent):
         zip(*[sent[i:] for i in range(n)])
 
+
+# read in predictions and target files from command line
+def main():
+    if len(sys.argv) != 3:
+        print 'usage: python bleu.py predictions_file target_file'
+
+    bleu  = Bleu(sys.argv[1], sys.argv[2])
+    score = bleu.score(4)
+    print 'bleu score: ', score
 
 
