@@ -180,8 +180,6 @@ class BeamSearch:
 
         for i in range(0, self.num_words + 1):
 
-            print "STACK", i, "..."
-
             for (j, hyp) in enumerate(self.hyp_stacks[i], start=0):
 
                 # tuple pointing to the current location of the candidate to expand

@@ -15,6 +15,13 @@ import sys
 import string
 from collections import defaultdict
 
+# get_word_translations
+#
+# args:		file_name		the file (formatted as a .csv) from which to obtain the word 
+#							translations
+#
+# returns:	the translation table generated from the data in the provided file
+
 def get_word_translations(file_name):
     reader = None
     translations = defaultdict(lambda : defaultdict(lambda : float("-inf")))
@@ -25,6 +32,12 @@ def get_word_translations(file_name):
             translations[trg][src] = float(prob)
 
     return translations
+
+# tokenize
+#
+# args: 	filename 		a text file to tokenize
+#
+# returns: 	a tokenized version of the given file with each sentence a list of its words
 
 def tokenize(filename):
 
@@ -42,6 +55,14 @@ def tokenize(filename):
             	tokens.append(tok_line)
 
     return tokens
+
+# get_datasets
+# 
+# args:		english			the tokenized English dataset
+#			spanish			the tokenized Spanish dataset
+#
+# returns: 	returns a training_set, test_set, and translated_set (the true translations 
+#			of the test_set) generated from the provided English and Spanish datasets
 
 def get_datasets(english, spanish):
 

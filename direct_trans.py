@@ -22,13 +22,20 @@ class DirectTrans:
     #
     # args:     translation_table   dict, takes a first key (the word) and return a list of
     #                               all possible translations for that first key
-    #           prune               the pruning method (THRESHOLD or HISTOGRAM)
-    #           pthresh             the pruning threshold
-
     def __init__(self, translation_table):
 
         self.all_translations = translation_table
         
+    # translate
+    #
+    # args:     source_sent         the source (foreign) sentence
+    #
+    # returns:  the directly translated version of the source_sent; that is, the most probable
+    #           translation of each word in the sentence, in their original order
+    #
+    # notes:    if a translation doesn't exist for a given word in the source_sent, the function
+    #           skips the word and moves onto the next word in the source_sent
+
     def translate(self, source_sent):
 
     	trans_sent = []
@@ -61,7 +68,6 @@ def main():
 	test_output = open('trans_direct.txt','w')
 
 	for i in range(len(test_set)):
-		print i
 		test_output.write(' '.join(translator.translate(test_set[i])) + "\n")
 
 	test_output.close()
