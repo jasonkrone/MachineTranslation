@@ -68,9 +68,6 @@ class Symmetrizer(object):
             trans = sorted(trans, key= lambda x: x[1], reverse=True)[:20]
             self.translations[f] = dict(trans)
 
-        # note: can potentially imporve scoring by smoothing
-        # can use chi squared stats based pruning (prob not this)
-
 
     ############# FUNCTIONS FOR GROW-DIAG-FINAL ##############
 
@@ -169,11 +166,8 @@ class Symmetrizer(object):
                     e_phrase = ' '.join(e_sent[i] for i in xrange(e_start, e_end+1))
                     f_phrase = ' '.join(f_sent[i] for i in xrange(fs, fe+1))
                 except: # debug output
-                    print 'A', A
-                    print 'e_sent: ', e_sent
-                    print 'f_sent: ', f_sent
-                    print 'f_start: ', f_start
-                    print 'f_end: ', f_end
+                    print 'A', A, 'e_sent', e_sent, 'f_sent', f_sent
+                    print 'f_start: ', f_start,'f_end: ', f_end
 
                 if (fe-fs) <= MAX_PHRASE_LEN and (e_end-e_start) <= MAX_PHRASE_LEN:
                     E.add(((e_start, e_end+1), e_phrase, f_phrase))
@@ -210,10 +204,6 @@ def symmetrizer_from_alignment_files(e2f_file, f2e_file):
 
     return Symmetrizer(e2f_clean, f2e_clean, e_corpus_clean, f_corpus_clean)
 
-def vocab_for_corpus(corpus):
-    words   = [w for sent in corpus for w in sent]
-    counter = Counter(words)
-    vocab   = set([w for (w, c) in counter.most(common) if c > 1])
 
 ''' determines if the alignment points are consitent with the given sentence lengths '''
 def alignment_in_bounds(A, e_len, f_len):
@@ -282,22 +272,17 @@ def prep_alignment_file(file_name):
     vocab    = [t for (t, c) in counter.most_common() if c > 1]
     # replace tokens that occur once with unknown token
     prep_corp  = [[t if t in vocab else UNKNOWN_TOKEN for t in l] for l in corp]
-    prep_lines = [' '.join(prep_corp[i/3]) if i % 3 == 1 else lines[i] for i in xrange(len(lines))]
+    prep_lines = [' '.join(prep_corp[i/3])+'\n' if i % 3 == 1 else lines[i] for i in xrange(len(lines))]
+    prep_lines = [l.encode("utf-8") for l in prep_lines]
 
-    print prep_lines
-
-
-
-    '''
-    #rows.append([f.encode("utf-8"), e.encode("utf-8"), prob])
-    with open('prep_' + file_name, 'w+') as f:
+    # write prep alignement and vocab to file
+    with open('prep_' + file_name, 'w') as f:
         for l in prep_lines:
             f.write(l)
-    with open('prep_' + file_name + '.vocab', 'w') as v:
+    with open(file_name + '.vocab', 'w') as v:
         for w in vocab:
-            v.write(w + '\n')
-    f.close()
-    '''
+            v.write(w.encode("utf-8") + '\n')
+
 
 def main():
     prep_alignment_file('100en_to_es.VA3.final')
