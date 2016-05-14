@@ -1,12 +1,13 @@
-''' symmetrizer.py by Jason Krone for Comp150
+''' symmetrizer.py by Jason Krone and Nick Yan for Comp150
 '''
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 from math import exp, pow, log
 import copy
 import codecs
 import csv
 
+UNKNOWN_TOKEN = "<UNK>"
 MAX_PHRASE_LEN = 7
 ALIGN_START_TOKEN = '({'
 ALIGN_END_TOKEN   = '})'
@@ -188,7 +189,9 @@ class Symmetrizer(object):
 ########### FUNCTIONS FOR READING IN DATA FROM GIZA ALIGNMENT5 FILES #################
 
 
-''' creates an instance of Symmetrizer using the given alignment files '''
+''' creates an instance of Symmetrizer using the given alignment files
+    Note: uses words in f_corp and e_corp that occur more than once as vocab
+'''
 def symmetrizer_from_alignment_files(e2f_file, f2e_file):
     e2f, f_corpus = alignment_trg_corp(e2f_file, True)
     f2e, e_corpus = alignment_trg_corp(f2e_file, False)
@@ -207,6 +210,10 @@ def symmetrizer_from_alignment_files(e2f_file, f2e_file):
 
     return Symmetrizer(e2f_clean, f2e_clean, e_corpus_clean, f_corpus_clean)
 
+def vocab_for_corpus(corpus):
+    words   = [w for sent in corpus for w in sent]
+    counter = Counter(words)
+    vocab   = set([w for (w, c) in counter.most(common) if c > 1])
 
 ''' determines if the alignment points are consitent with the given sentence lengths '''
 def alignment_in_bounds(A, e_len, f_len):
@@ -261,8 +268,41 @@ def alignment_from_line(line, src_is_english):
     return alignment
 
 
+''' replaces tokens that appear only once with the UNKNOWN_TOKEN '''
+def prep_alignment_file(file_name):
+    f = codecs.open(file_name, encoding='utf-8', mode='r+')
+    lines    = f.readlines()
+    f.close()
+    # get the text lines from file
+    corp     = [lines[i] for i in xrange(len(lines)) if i % 3 == 1]
+    corp     = [l.split() for l in corp] # split on spaces
+    tokens   = [t for l in corp for t in l] # extract tokens
+    counter  = Counter(tokens)
+    # include tokens that appear more than once
+    vocab    = [t for (t, c) in counter.most_common() if c > 1]
+    # replace tokens that occur once with unknown token
+    prep_corp  = [[t if t in vocab else UNKNOWN_TOKEN for t in l] for l in corp]
+    prep_lines = [' '.join(prep_corp[i/3]) if i % 3 == 1 else lines[i] for i in xrange(len(lines))]
+
+    print prep_lines
+
+
+
+    '''
+    #rows.append([f.encode("utf-8"), e.encode("utf-8"), prob])
+    with open('prep_' + file_name, 'w+') as f:
+        for l in prep_lines:
+            f.write(l)
+    with open('prep_' + file_name + '.vocab', 'w') as v:
+        for w in vocab:
+            v.write(w + '\n')
+    f.close()
+    '''
+
 def main():
-    sym = symmetrizer_from_alignment_files('data/3000en_to_es.VA3.final', 'data/3000es_to_en.VA3.final')
+    prep_alignment_file('100en_to_es.VA3.final')
+    '''
+    sym = symmetrizer_from_alignment_files('data/3000en_to_es.VA3.final', 'data/3000es_to_en.VA3.final', vocab)
     #sym.symmetrize()
     counts = defaultdict((lambda : defaultdict(lambda : int())))
 
@@ -279,7 +319,8 @@ def main():
                 prob = float(e_word_pairs[f]) / e_count
                 sym.translations[f][e] = log(prob)
 
-    sym.write_translations_to_file('3000_trans.txt')
+    sym.write_translations_to_file('3000_word_trans.txt')
+    '''
 
     # read in the first 100 tokenized sentences
     # e_corp = readlines.split()
